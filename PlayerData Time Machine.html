@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PlayerData Time Machine</title>
+<style>
+:root{--desk:#008080;box-sizing:border-box;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--desk:#004848}}
+:root[data-theme="dark"]{--desk:#004848}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--desk);font:14px/1.4 Tahoma,"MS Sans Serif","Segoe UI",sans-serif;color:#000;padding:16px 10px}
+.win{max-width:520px;margin:0 auto;background:#c0c0c0;border:2px solid;border-color:#dfdfdf #000 #000 #dfdfdf;box-shadow:inset -1px -1px #808080,inset 1px 1px #fff;padding:3px}
+.tb{background:linear-gradient(90deg,#000080,#1084d0);color:#fff;padding:3px 4px;display:flex;justify-content:space-between;align-items:center}
+.tb i{display:inline-block;width:18px;height:16px;margin-left:2px;background:#c0c0c0;color:#000;font:700 11px/14px sans-serif;text-align:center;border:1px solid;border-color:#fff #000 #000 #fff;font-style:normal}
+.bd{padding:10px}
+fieldset{border:2px groove #fff;margin:10px 0;padding:8px}
+legend{padding:0 4px}
+.row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.btn,button{background:#c0c0c0;color:#000;font:inherit;padding:4px 12px;border:2px solid;border-color:#fff #404040 #404040 #fff;box-shadow:inset -1px -1px #808080;cursor:pointer}
+.btn:active,button:active{border-color:#404040 #fff #fff #404040;box-shadow:inset 1px 1px #808080}
+button:disabled{color:#808080;text-shadow:1px 1px #fff;cursor:default}
+input[type=file]{display:none}
+.fn{color:#404040;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}
+.list{background:#fff;border:2px solid;border-color:#808080 #fff #fff #808080;box-shadow:inset 1px 1px #000;height:170px;overflow:auto;padding:4px;font:12px/1.5 "Courier New",monospace;white-space:pre-wrap}
+.bar{height:18px;border:2px solid;border-color:#808080 #fff #fff #808080;background:#fff;margin:8px 0}
+.bar b{display:block;height:100%;width:0;background:repeating-linear-gradient(90deg,#000080 0 10px,#fff 10px 12px)}
+p{margin:6px 0}
+</style></head><body>
+<div class="win"><div class="tb"><b>PlayerData Time Machine</b><span><i>_</i><i>□</i><i>×</i></span></div>
+<div class="bd">
+<p>Downgrade a player from <b>1.13–1.20</b> to <b>1.12</b> and keep their items, stats and advancements. Files never leave your device.</p>
+<fieldset><legend>Step 1: Pick files from your world folder</legend>
+<div class="row"><label class="btn">Playerdata .dat<input type="file" id="f1" accept=".dat"></label><span class="fn" id="n1">required</span></div>
+<div class="row"><label class="btn">Stats .json<input type="file" id="f2" accept=".json"></label><span class="fn" id="n2">optional</span></div>
+<div class="row"><label class="btn">Advancements .json<input type="file" id="f3" accept=".json"></label><span class="fn" id="n3">optional</span></div>
+</fieldset>
+<div class="row"><button id="go" disabled>Convert &gt;</button><button id="dl" hidden>Save ZIP...</button></div>
+<div class="bar"><b id="pb"></b></div>
+<fieldset><legend>Recycle Bin (could not convert)</legend><div class="list" id="bin">Nothing converted yet.</div></fieldset>
+<p id="st">Ready.</p>
+</div></div>
+<script>
+// ---- NBT reader/writer ----
+const R=b=>{let p=0;const d=new DataView(b.buffer,b.byteOffset,b.byteLength),u=new TextDecoder();
+const str=()=>{const n=d.getUint16(p);p+=2;const s=u.decode(b.subarray(p,p+n));p+=n;return s};
+const pay=t=>{switch(t){
+case 1:return{t,v:d.getInt8(p++)};
+case 2:p+=2;return{t,v:d.getInt16(p-2)};
+case 3:p+=4;return{t,v:d.getInt32(p-4)};
+case 4:p+=8;return{t,v:d.getBigInt64(p-8)};
+case 5:p+=4;return{t,v:d.getFloat32(p-4)};
+case 6:p+=8;return{t,v:d.getFloat64(p-8)};
+case 7:case 11:case 12:{const n=d.getInt32(p);p+=4;const z=t==7?n:t==11?n*4:n*8;const a=b.slice(p,p+z);p+=z;return{t,v:a}}
+case 8:return{t,v:str()};
+case 9:{const et=b[p++],n=d.getInt32(p);p+=4;const v=[];for(let i=0;i<n;i++)v.push(pay(et));return{t,et,v}}
+case 10:{const v={};for(;;){const tt=b[p++];if(!tt)break;const k=str();v[k]=pay(tt)}return{t,v}}
+default:throw Error('Bad NBT tag '+t)}};
+const t=b[p++],name=str();return{name,root:pay(t)}};
+const W=(root,name)=>{const o=[],e=new TextEncoder();
+const num=(t,v)=>{const a=new DataView(new ArrayBuffer(8));
+[null,a.setInt8,a.setInt16,a.setInt32,a.setBigInt64,a.setFloat32,a.setFloat64][t].call(a,0,v);
+const n=[0,1,2,4,8,4,8][t];for(let i=0;i<n;i++)o.push(a.getUint8(i))};
+const str=s=>{const x=e.encode(s);num(2,x.length);for(const c of x)o.push(c)};
+const pay=n=>{const{t,v}=n;
+if(t<=6)num(t,v);
+else if(t==7||t==11||t==12){num(3,v.length/(t==7?1:t==11?4:8));for(const c of v)o.push(c)}
+else if(t==8)str(v);
+else if(t==9){o.push(n.et);num(3,v.length);v.forEach(pay)}
+else{for(const k in v){o.push(v[k].t);str(k);pay(v[k])}o.push(0)}};
+o.push(root.t);str(name);pay(root);return Uint8Array.from(o)};
+const gz=async(b,c)=>new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new(c?CompressionStream:DecompressionStream)('gzip'))).arrayBuffer());
+// ---- ZIP (stored) ----
+const crcT=new Uint32Array(256).map((_,n)=>{for(let k=0;k<8;k++)n=n&1?0xEDB88320^(n>>>1):n>>>1;return n>>>0});
+const crc=b=>{let c=-1;for(const x of b)c=crcT[(c^x)&255]^(c>>>8);return(c^-1)>>>0};
+const zip=files=>{const P=[],CD=[],e=new TextEncoder();let off=0,cs=0;
+for(const[n,d]of files){const nb=e.encode(n),c=crc(d);
+const h=new DataView(new ArrayBuffer(30));h.setUint32(0,0x04034b50,true);h.setUint16(4,20,true);h.setUint32(14,c,true);h.setUint32(18,d.length,true);h.setUint32(22,d.length,true);h.setUint16(26,nb.length,true);
+P.push(h,nb,d);
+const g=new DataView(new ArrayBuffer(46));g.setUint32(0,0x02014b50,true);g.setUint16(4,20,true);g.setUint16(6,20,true);g.setUint32(16,c,true);g.setUint32(20,d.length,true);g.setUint32(24,d.length,true);g.setUint16(28,nb.length,true);g.setUint32(42,off,true);
+CD.push(g,nb);off+=30+nb.length+d.length;cs+=46+nb.length}
+const z=new DataView(new ArrayBuffer(22));z.setUint32(0,0x06054b50,true);z.setUint16(8,files.length,true);z.setUint16(10,files.length,true);z.setUint32(12,cs,true);z.setUint32(16,off,true);
+return new Blob([...P,...CD,z],{type:'application/zip'})};
+// ---- Mapping tables (starter set: extend these!) ----
+const M={},put=(n,id,d=0)=>M[n]=[id,d];
+'white orange magenta light_blue yellow lime pink gray light_gray cyan purple blue brown green red black'.split(' ').forEach((c,i)=>{
+put(c+'_wool','wool',i);put(c+'_terracotta','stained_hardened_clay',i);put(c+'_stained_glass','stained_glass',i);put(c+'_stained_glass_pane','stained_glass_pane',i);put(c+'_carpet','carpet',i);put(c+'_concrete','concrete',i);put(c+'_concrete_powder','concrete_powder',i)});
+'oak spruce birch jungle acacia dark_oak'.split(' ').forEach((w,i)=>{put(w+'_planks','planks',i);put(w+'_sapling','sapling',i);put(w+'_log',i<4?'log':'log2',i%4);put(w+'_leaves',i<4?'leaves':'leaves2',i%4);put(w+'_slab','wooden_slab',i);put(w+'_stairs',w+'_stairs')});
+'wooden stone iron golden diamond'.split(' ').forEach(m=>'sword pickaxe axe shovel hoe'.split(' ').forEach(t=>put(m+'_'+t,m+'_'+t)));
+'leather chainmail iron golden diamond'.split(' ').forEach(m=>'helmet chestplate leggings boots'.split(' ').forEach(t=>put(m+'_'+t,m+'_'+t)));
+('stone dirt cobblestone sand gravel gold_ore iron_ore coal_ore lapis_ore diamond_ore emerald_ore redstone_ore glass sandstone bedrock obsidian torch chest crafting_table furnace ladder rail powered_rail detector_rail activator_rail lever stone_button tnt bookshelf mossy_cobblestone clay ice snow netherrack soul_sand glowstone pumpkin sticky_piston piston hopper dropper dispenser observer redstone_torch repeater comparator redstone_lamp lapis_block gold_block iron_block diamond_block emerald_block redstone_block coal_block apple bow arrow coal diamond emerald iron_ingot gold_ingot stick bowl string feather gunpowder wheat_seeds wheat bread flint flint_and_steel porkchop cooked_porkchop golden_apple bucket water_bucket lava_bucket milk_bucket minecart saddle redstone snowball leather paper book slime_ball egg compass clock glowstone_dust fishing_rod cookie map shears beef cooked_beef chicken cooked_chicken rotten_flesh ender_pearl blaze_rod ghast_tear gold_nugget nether_wart glass_bottle spider_eye fermented_spider_eye blaze_powder magma_cream brewing_stand cauldron ender_eye experience_bottle fire_charge writable_book written_book enchanted_book item_frame carrot potato baked_potato poisonous_potato golden_carrot name_tag lead nether_star pumpkin_pie quartz elytra totem_of_undying shield bone sugar cake melon_seeds pumpkin_seeds beetroot beetroot_seeds arrow spectral_arrow tipped_arrow potion splash_potion lingering_potion bone_block end_stone end_portal_frame dragon_egg ender_chest beacon anvil enchanting_table trapped_chest iron_bars iron_door iron_trapdoor shulker_shell sea_lantern prismarine').split(' ').forEach(n=>put(n,n));
+[['granite','stone',1],['polished_granite','stone',2],['diorite','stone',3],['polished_diorite','stone',4],['andesite','stone',5],['polished_andesite','stone',6],['coarse_dirt','dirt',1],['podzol','dirt',2],['grass_block','grass'],['charcoal','coal',1],['oak_door','wooden_door'],['bricks','brick_block'],['melon_slice','melon'],['glistering_melon_slice','speckled_melon'],['firework_rocket','fireworks'],['oak_boat','boat'],['oak_sign','sign'],['cod','fish',0],['salmon','fish',1],['cooked_cod','cooked_fish',0],['cooked_salmon','cooked_fish',1],['bone_meal','dye',15],['lapis_lazuli','dye',4],['ink_sac','dye',0],['cocoa_beans','dye',3],['enchanted_golden_apple','golden_apple',1],['terracotta','hardened_clay'],['jack_o_lantern','lit_pumpkin']].forEach(a=>put(...a));
+const EN={protection:0,fire_protection:1,feather_falling:2,blast_protection:3,projectile_protection:4,respiration:5,aqua_affinity:6,thorns:7,depth_strider:8,frost_walker:9,binding_curse:10,sharpness:16,smite:17,bane_of_arthropods:18,knockback:19,fire_aspect:20,looting:21,sweeping:22,efficiency:32,silk_touch:33,unbreaking:34,fortune:35,power:48,punch:49,flame:50,infinity:51,luck_of_the_sea:61,lure:62,mending:70,vanishing_curse:71};
+const CS=new Set('leaveGame playOneMinute walkOneCm crouchOneCm sprintOneCm swimOneCm fallOneCm climbOneCm flyOneCm diveOneCm minecartOneCm boatOneCm pigOneCm horseOneCm aviateOneCm walkOnWaterOneCm walkUnderWaterOneCm jump damageDealt damageTaken deaths mobKills animalsBred playerKills fishCaught junkFished treasureFished talkedToVillager tradedWithVillager cakeSlicesEaten cauldronFilled cauldronUsed armorCleaned bannerCleaned drop'.split(' '));
+const TY={mined:'mineBlock',crafted:'craftItem',used:'useItem',broken:'breakItem'};
+const EM={magma_cube:'LavaSlime',zombified_piglin:'PigZombie',iron_golem:'VillagerGolem',snow_golem:'SnowMan',wither:'WitherBoss',mooshroom:'MushroomCow',ocelot:'Ozelot'};
+const ADV=new Set(Object.entries({story:'root mine_stone upgrade_tools smelt_iron obtain_armor lava_bucket iron_tools deflect_arrow form_obsidian mine_diamond enter_the_nether shiny_gear enchant_item cure_zombie_villager follow_ender_eye enter_the_end',nether:'root return_to_sender find_fortress fast_travel uneasy_alliance get_wither_skull summon_wither obtain_blaze_rod create_beacon create_full_beacon brew_potion all_potions all_effects',end:'root kill_dragon dragon_egg enter_end_gateway respawn_dragon dragon_breath find_end_city elytra levitate',adventure:'root voluntary_exile kill_a_mob trade sleep_in_bed shoot_arrow kill_all_mobs totem_of_undying summon_iron_golem sniper_duel adventuring_time',husbandry:'root breed_an_animal tame_an_animal plant_seed bred_all_animals balanced_diet'}).flatMap(([t,s])=>s.split(' ').map(x=>`minecraft:${t}/${x}`)));
+// ---- Converters ----
+let okItems=0;
+const conv=(it,log,where)=>{const o=it.v,id=(o.id.v||'').replace('minecraft:',''),m=M[id],cnt=o.Count?.v??1;
+if(!m){log.push(`${where}: ${id} x${cnt}`);return null}
+o.id.v='minecraft:'+m[0];let dmg=m[1];const tag=o.tag?.v;
+if(tag){
+if(tag.Damage){if(!dmg)dmg=tag.Damage.v;delete tag.Damage}
+for(const[k,nk]of[['Enchantments','ench'],['StoredEnchantments','StoredEnchantments']]){if(!tag[k])continue;const L=[];
+for(const e of tag[k].v){const n=e.v.id.v.replace('minecraft:',''),i=EN[n=='sweeping_edge'?'sweeping':n];
+if(i===undefined){log.push(`${where}: ${id} lost enchant ${n}`);continue}
+L.push({t:10,v:{id:{t:2,v:i},lvl:{t:2,v:e.v.lvl.v}}})}
+delete tag[k];if(L.length)tag[nk]={t:9,et:10,v:L}}
+const dp=tag.display?.v;if(dp){delete dp.Lore;if(dp.Name){try{const j=JSON.parse(dp.Name.v);dp.Name.v=typeof j=='string'?j:j.text||''}catch{}}}}
+o.Damage={t:2,v:dmg};okItems++;return it};
+const player=(root,log)=>{const p=root.v;
+for(const k of['Inventory','EnderItems']){if(p[k])p[k].v=p[k].v.map(it=>conv(it,log,k=='Inventory'?'Inventory':'Ender chest')).filter(Boolean)}
+if(p.Dimension?.t==8)p.Dimension={t:3,v:{'minecraft:the_nether':-1,'minecraft:the_end':1}[p.Dimension.v]??0};
+if(p.UUID?.t==11){const d=new DataView(p.UUID.v.buffer,p.UUID.v.byteOffset);p.UUIDMost={t:4,v:d.getBigInt64(0)};p.UUIDLeast={t:4,v:d.getBigInt64(8)};delete p.UUID}
+for(const k of['Attributes','Brain','recipeBook','SpawnDimension','LastDeathLocation','warden_spawn_tracker','ActiveEffects'])if(p[k]){delete p[k];log.push(`Player data: ${k} (rebuilt by the game)`)}
+p.DataVersion={t:3,v:1343}};
+const stats=(j,log)=>{const o={};
+for(const[cat,m]of Object.entries(j.stats||j)){if(typeof m!='object')continue;const c=cat.replace('minecraft:','');
+for(const[k,v]of Object.entries(m)){const n=k.replace('minecraft:','');let key=null;
+if(c=='custom'){const cc=n=='play_time'?'playOneMinute':n.replace(/_(.)/g,(_,x)=>x.toUpperCase());if(CS.has(cc))key='stat.'+cc}
+else if(TY[c]&&M[n])key=`stat.${TY[c]}.minecraft.${M[n][0]}`;
+else if(c=='killed'||c=='killed_by')key=`stat.${c=='killed'?'killEntity':'entityKilledBy'}.${EM[n]||n.replace(/(^|_)(.)/g,(_,a,x)=>x.toUpperCase())}`;
+if(key)o[key]=(o[key]||0)+v;else log.push(`Stat ${c}/${n} = ${v}`)}}return o};
+const advs=(j,log)=>{const o={};let rc=0;
+for(const[k,v]of Object.entries(j)){if(k=='DataVersion')continue;if(k.includes('recipes/'))rc++;else if(ADV.has(k))o[k]=v;else log.push('Advancement '+k.replace('minecraft:',''))}
+if(rc)log.push(`${rc} recipe-book unlocks (1.12 rebuilds these itself)`);return o};
+// ---- UI ----
+const $=id=>document.getElementById(id),F={};let out=null;
+['1','2','3'].forEach(i=>$('f'+i).onchange=e=>{F[i]=e.target.files[0];$('n'+i).textContent=F[i]?F[i].name:'';$('go').disabled=!F[1]});
+const prog=n=>$('pb').style.width=n+'%';
+$('go').onclick=async()=>{const log=[],files=[];okItems=0;$('dl').hidden=true;prog(10);$('st').textContent='Converting...';
+try{
+let b=new Uint8Array(await F[1].arrayBuffer());if(b[0]==0x1f&&b[1]==0x8b)b=await gz(b,false);
+const{name,root}=R(b);player(root,log);files.push(['playerdata/'+F[1].name,await gz(W(root,name),true)]);prog(50);
+if(F[2])files.push(['stats/'+F[2].name,new TextEncoder().encode(JSON.stringify(stats(JSON.parse(await F[2].text()),log)))]);
+if(F[3])files.push(['advancements/'+F[3].name,new TextEncoder().encode(JSON.stringify(advs(JSON.parse(await F[3].text()),log),null,2))]);
+files.push(['RECYCLE_BIN.txt',new TextEncoder().encode('Not converted (no 1.12 equivalent or no mapping yet):\n'+(log.join('\n')||'(nothing)'))]);
+out=zip(files);prog(100);
+$('bin').textContent=log.length?log.join('\n'):'Empty. Everything made it!';
+$('st').textContent=`Done. ${okItems} item stack(s) converted, ${log.length} in the Recycle Bin.`;
+const dl=window.claude?await claude.use('downloads'):null;if(dl){$('dl').hidden=false;$('dl').onclick=()=>dl.save({filename:'PlayerData_1.12.zip',data:out}).catch(e=>{if(e.code!='declined')$('st').textContent='Save failed: '+e.message})}else $('st').textContent+=' (Saving is unavailable in this view.)';
+}catch(e){prog(0);$('st').textContent='Error: '+e.message+' (is this a 1.13+ playerdata file?)'}};
+</script></body></html>
